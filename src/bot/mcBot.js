@@ -396,8 +396,7 @@ class BotManager extends EventEmitter {
       this.updateStatus('DISCONNECTED');
       this.bot = null;
       if (!this.manualStop) {
-        this.logSystem(`[DEBUG] Reconnect ditahan selama 60 detik untuk analisis error.`);
-        this.scheduleReconnect(60000);
+        this.scheduleReconnect(5000);
       }
     });
   }
@@ -519,7 +518,8 @@ class BotManager extends EventEmitter {
                       const mcData = require('minecraft-data')(this.bot.version);
                       const defaultMove = new Movements(this.bot, mcData);
                       defaultMove.canDig = false; // Hindari bot menggali blok sembarangan saat jalan
-                      defaultMove.allowParkour = true;
+                      defaultMove.allowParkour = false; // Matikan lompat parkour ekstrem agar tidak di-kick Anti-Cheat
+                      defaultMove.allowSprinting = false; // Matikan lari (sprint) agar gerakan lebih natural
                       this.bot.pathfinder.setMovements(defaultMove);
                       this.bot.pathfinder.setGoal(new goals.GoalFollow(targetEntity, 2), true); // Jarak 2 block lebih aman
                     }
