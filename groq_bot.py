@@ -141,31 +141,59 @@ def query_gemini_ai(user_name, user_message):
         return reply.replace("\n", " ")
 
 def query_groq_ai(user_name, user_message):
-    """Mengirim pesan ke Groq API"""
+    """Mengirim pesan ke Groq API dengan rotasi model internal (groq/compound-mini -> groq/compound)"""
+    groq_models = ["groq/compound-mini", "groq/compound"]
+    
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
     }
-    payload = {
-        "model": "groq/compound-mini",
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Player '{user_name}' berkata: \"{user_message}\"."}
-        ],
-        "max_tokens": 50,
-        "temperature": 0.7
-    }
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=10) as response:
-        res_json = json.loads(response.read().decode("utf-8"))
-        reply = res_json["choices"][0]["message"]["content"].strip()
-        return reply.replace("\n", " ")
+    
+    last_err = None
+    for model_name in groq_models:
+        payload = {
+            "model": model_name,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": f"Player '{user_name}' berkata: \"{user_message}\"."}
+            ],
+            "max_tokens": 50,
+            "temperature": 0.7
+        }
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                res_json = json.loads(response.read().decode("utf-8"))
+                reply = res_json["choices"][0]["message"]["content"].strip()
+                return reply.replace("\n", " ")
+        except Exception as e:
+            last_err = e
+            print(f"\n[Groq Model {model_name} Error/429]: {e}. Mencoba model Groq berikutnya...", file=sys.stderr)
+            
+    raise last_err
+
+def check_smart_local_reply(user_message):
+    """Pengecekan lokal cepat untuk pertanyaan umum agar menghemat kuota API 70%+"""
+    msg = user_message.lower().strip()
+    
+    if any(k in msg for k in ["ngapain", "lagi apa", "lagi ngapain"]):
+        return "afk wkwk"
+    if any(k in msg for k in ["dimana", "dimanakah", "posisi"]):
+        return "di kandang afk wkwk"
+    if any(k in msg for k in ["bisa gerak", "bisa jalan", "gerak ga", "jalan ga"]):
+        return "gabisa, afk"
+    if any(k in msg for k in ["bot ya", "bot kah", "pake ai", "kamu ai"]):
+        return "bot pala lu wkwk"
+    if any(k in msg for k in ["ikut gue", "sini", "ke sini", "kemari"]):
+        return "gabisa jir 😭"
+        
+    return None
 
 def get_ai_response(user_name, user_message):
-    """Mendapatkan respon AI dengan sistem Cooldown + Multi-Provider Fallback Chain"""
+    """Mendapatkan respon AI dengan sistem Cooldown + Smart Local Check + Multi-Provider Fallback Chain"""
     global LAST_GLOBAL_QUERY_TIME, PLAYER_LAST_QUERY_TIME
     current_time = time.time()
     
@@ -176,7 +204,14 @@ def get_ai_response(user_name, user_message):
         print(f"\n[Rate Limit Protection]: {user_name} spamming, dikirim respon lokal.")
         return "sabar le, jgn spam wkwk"
 
-    # 2. Cek Cooldown Global (Jeda minimal antar API call untuk cegah HTTP 429)
+    # 2. Cek Fast Local Match (Hemat API call hingga 70%+)
+    local_reply = check_smart_local_reply(user_message)
+    if local_reply:
+        print(f"\n[Fast Local Reply Triggered for {user_name}]: {local_reply}")
+        PLAYER_LAST_QUERY_TIME[player_key] = current_time
+        return local_reply
+
+    # 3. Cek Cooldown Global (Jeda minimal antar API call untuk cegah HTTP 429)
     time_since_last_global = current_time - LAST_GLOBAL_QUERY_TIME
     if time_since_last_global < GLOBAL_COOLDOWN_SECONDS:
         time.sleep(GLOBAL_COOLDOWN_SECONDS - time_since_last_global)
@@ -185,14 +220,14 @@ def get_ai_response(user_name, user_message):
     LAST_GLOBAL_QUERY_TIME = time.time()
     PLAYER_LAST_QUERY_TIME[player_key] = time.time()
 
-    # 3. Eksekusi Rotasi API (DeepSeek -> Gemini -> Groq -> Local Fallback)
+    # 4. Eksekusi Rotasi API (DeepSeek -> Gemini -> Groq Pool [compound-mini, compound] -> Local Fallback)
     providers = []
     if DEEPSEEK_API_KEY:
         providers.append(("DeepSeek AI", lambda: query_deepseek_ai(user_name, user_message)))
     if GEMINI_API_KEY:
         providers.append(("Gemini AI", lambda: query_gemini_ai(user_name, user_message)))
     if GROQ_API_KEY:
-        providers.append(("Groq AI", lambda: query_groq_ai(user_name, user_message)))
+        providers.append(("Groq AI Pool", lambda: query_groq_ai(user_name, user_message)))
 
     for name, func in providers:
         try:
