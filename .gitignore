@@ -1,5 +1,18 @@
-node_modules/
-npm-debug.log
-config.json
-.env
+# Binary Executables
 MinecraftClient
+
+# Backup & Logs
+MinecraftClient.backup.ini
+*.log
+console-log.txt
+chatlog-*.txt
+alerts-log.txt
+playerlog.txt
+
+# Rendered outputs & runtime caches
+Rendered_Maps/
+*.bin
+
+# Environment & Dependencies
+.env
+node_modules/
