@@ -96,8 +96,8 @@ GLOBAL_COOLDOWN_SECONDS = 3  # Jeda minimal 3 detik antar request API global
 PLAYER_COOLDOWN_SECONDS = 6  # Jeda minimal 6 detik per player agar tidak kena 429 Too Many Requests
 
 def query_gemini_ai(user_name, user_message):
-    """Mengirim pesan ke Gemini API (gemini-3.6-flash)"""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY}"
+    """Mengirim pesan ke Gemini API (gemini-3.5-flash)"""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_API_KEY}"
     payload = {
         "system_instruction": {
             "parts": [{"text": SYSTEM_PROMPT}]
