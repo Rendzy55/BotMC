@@ -27,11 +27,12 @@ if os.path.exists(".env"):
                 GROQ_API_KEY = line.split("=", 1)[1].strip('"\'')
 
 # ==========================================
-# SYSTEM PROMPT — MamaMia Minecraft Chat
+# SYSTEM PROMPT — Mia Minecraft Chat
 # ==========================================
-SYSTEM_PROMPT = """# SYSTEM PROMPT — MamaMia Minecraft Chat
+SYSTEM_PROMPT = """# SYSTEM PROMPT — Mia Minecraft Chat
 
-Kamu adalah MamaMia, player Minecraft biasa yang sedang AFK di Golda Farm.
+Kamu adalah Mia, player Minecraft biasa yang sedang AFK di Golda Farm.
+Panggilan nama kamu HANYA Mia (tidak ada panggilan lain).
 Kamu adalah temannya Rendy1125 (akun ini milik/teman dari Rendy1125).
 
 ## PRIORITAS UTAMA: JAWAB SEPERTI PLAYER ASLI
@@ -49,13 +50,13 @@ JANGAN memaksakan slang di setiap jawaban.
 JANGAN menggunakan banyak slang sekaligus.
 
 ## CONTOH PANJANG YANG DIINGINKAN
-Player: "mamamia ngapain"
+Player: "mia ngapain"
 Jawaban bagus: "afk wkwk"
 
 Player: "lu bisa gerak ga"
 Jawaban bagus: "kaga jir" atau "gabisa, afk"
 
-Player: "mamamia dimana"
+Player: "mia dimana"
 Jawaban bagus: "di Golda Farm"
 
 Player: "lu temen siapa" / "owner lu siapa" / "bot punya siapa"
@@ -223,7 +224,7 @@ def get_ai_response(user_name, user_message):
     last_player_time = PLAYER_LAST_QUERY_TIME.get(player_key, 0)
     if current_time - last_player_time < PLAYER_COOLDOWN_SECONDS:
         print(f"\n[Rate Limit Protection]: {user_name} spamming, dikirim respon lokal.")
-        return "sabar le, jgn spam wkwk"
+        return ". . . :v"
 
     # 2. Cek Fast Local Match (Hemat API call hingga 70%+)
     local_reply = check_smart_local_reply(user_message)
@@ -256,18 +257,18 @@ def get_ai_response(user_name, user_message):
         except Exception as e:
             print(f"\n[{name} Error/429]: {e}. Mengalihkan ke provider berikutnya...", file=sys.stderr)
 
-    return "panjang le, cari di google aja wkwk"
+    return ". . . :v"
 
 def main():
     print("==================================================")
     print(" Starting Minecraft Console Client + AI Bot ")
     if GEMINI_API_KEY:
-        print(" Primary AI Engine: Google Gemini AI (gemini-3.6-flash)")
+        print(" Primary AI Engine: Google Gemini AI (gemini-3.5-flash-lite)")
     elif GROQ_API_KEY:
         print(" Primary AI Engine: Groq AI (groq/compound-mini)")
     else:
         print(" Warning: Tidak ada API Key (Gemini/Groq) di .env!")
-    print(" Persona: Player Minecraft AFK (MamaMia) ")
+    print(" Persona: Player Minecraft AFK (Mia) ")
     print(" Feature: Anti-Spam Cooldown & Long Question Dismissal ")
     print("==================================================")
     
@@ -313,11 +314,11 @@ def main():
                 sender = pub_match.group(1) or pub_match.group(2)
                 message = pub_match.group(3).strip()
                 
-                if sender.lower() == "mamamia":
+                if sender.lower() == "mia":
                     continue
 
                 lower_msg = message.lower()
-                if lower_msg.startswith("!ask ") or "mamamia" in lower_msg or "bot" in lower_msg:
+                if lower_msg.startswith("!ask ") or "mia" in lower_msg or "bot" in lower_msg:
                     clean_msg = re.sub(r'^!ask\s+', '', message, flags=re.IGNORECASE)
                     print(f"\n[AI Public Chat Detected from {sender}]: {clean_msg}")
                     
