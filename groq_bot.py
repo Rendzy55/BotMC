@@ -122,8 +122,14 @@ def query_deepseek_ai(user_name, user_message):
         return reply.replace("\n", " ")
 
 def query_gemini_ai(user_name, user_message):
-    """Mengirim pesan ke Gemini API (gemini-3.5-flash)"""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_API_KEY}"
+    """Mengirim pesan ke Gemini API dengan rotasi model internal (gemini-3.5-flash-lite -> gemini-3.1-flash-lite -> gemini-3.5-flash)"""
+    gemini_models = [
+        "models/gemini-3.5-flash-lite",
+        "models/gemini-3.1-flash-lite",
+        "models/gemini-3.5-flash"
+    ]
+    
+    headers = {"Content-Type": "application/json"}
     payload = {
         "system_instruction": {
             "parts": [{"text": SYSTEM_PROMPT}]
@@ -132,13 +138,22 @@ def query_gemini_ai(user_name, user_message):
             {"parts": [{"text": f"Player {user_name} berkata: {user_message}"}]}
         ]
     }
-    headers = {"Content-Type": "application/json"}
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=10) as response:
-        res_json = json.loads(response.read().decode("utf-8"))
-        reply = res_json["candidates"][0]["content"]["parts"][0]["text"].strip()
-        return reply.replace("\n", " ")
+    
+    last_err = None
+    for m in gemini_models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/{m}:generateContent?key={GEMINI_API_KEY}"
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                res_json = json.loads(response.read().decode("utf-8"))
+                reply = res_json["candidates"][0]["content"]["parts"][0]["text"].strip()
+                return reply.replace("\n", " ")
+        except Exception as e:
+            last_err = e
+            print(f"\n[Gemini Model {m} Error/429]: {e}. Mencoba model Gemini berikutnya...", file=sys.stderr)
+            
+    raise last_err
 
 def query_groq_ai(user_name, user_message):
     """Mengirim pesan ke Groq API dengan rotasi model internal (groq/compound-mini -> groq/compound)"""
