@@ -11,7 +11,6 @@ import urllib.error
 # ==========================================
 # LOAD API KEYS DARI ENV / .ENV
 # ==========================================
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
@@ -19,9 +18,7 @@ if os.path.exists(".env"):
     with open(".env", "r") as f:
         for line in f:
             line = line.strip()
-            if line.startswith("DEEPSEEK_API_KEY=") and not DEEPSEEK_API_KEY:
-                DEEPSEEK_API_KEY = line.split("=", 1)[1].strip('"\'')
-            elif line.startswith("GEMINI_API_KEY=") and not GEMINI_API_KEY:
+            if line.startswith("GEMINI_API_KEY=") and not GEMINI_API_KEY:
                 GEMINI_API_KEY = line.split("=", 1)[1].strip('"\'')
             elif line.startswith("GROQ_API_KEY=") and not GROQ_API_KEY:
                 GROQ_API_KEY = line.split("=", 1)[1].strip('"\'')
@@ -102,29 +99,6 @@ PLAYER_LAST_QUERY_TIME = {}
 
 GLOBAL_COOLDOWN_SECONDS = 3  # Jeda minimal 3 detik antar request API global
 PLAYER_COOLDOWN_SECONDS = 6  # Jeda minimal 6 detik per player agar tidak kena 429 Too Many Requests
-
-def query_deepseek_ai(user_name, user_message):
-    """Mengirim pesan ke DeepSeek API (deepseek-chat)"""
-    url = "https://api.deepseek.com/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
-    }
-    payload = {
-        "model": "deepseek-chat",
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Player '{user_name}' berkata: \"{user_message}\"."}
-        ],
-        "max_tokens": 50,
-        "temperature": 0.7
-    }
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=10) as response:
-        res_json = json.loads(response.read().decode("utf-8"))
-        reply = res_json["choices"][0]["message"]["content"].strip()
-        return reply.replace("\n", " ")
 
 def query_gemini_ai(user_name, user_message):
     """Mengirim pesan ke Gemini API dengan rotasi model internal (gemini-3.5-flash-lite -> gemini-3.1-flash-lite -> gemini-3.5-flash)"""
@@ -242,10 +216,8 @@ def get_ai_response(user_name, user_message):
     LAST_GLOBAL_QUERY_TIME = time.time()
     PLAYER_LAST_QUERY_TIME[player_key] = time.time()
 
-    # 4. Eksekusi Rotasi API (DeepSeek -> Gemini -> Groq Pool [compound-mini, compound] -> Local Fallback)
+    # 4. Eksekusi Rotasi API (Gemini -> Groq Pool [compound-mini, compound] -> Local Fallback)
     providers = []
-    if DEEPSEEK_API_KEY:
-        providers.append(("DeepSeek AI", lambda: query_deepseek_ai(user_name, user_message)))
     if GEMINI_API_KEY:
         providers.append(("Gemini AI", lambda: query_gemini_ai(user_name, user_message)))
     if GROQ_API_KEY:
