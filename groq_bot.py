@@ -11,6 +11,7 @@ import urllib.error
 # ==========================================
 # LOAD API KEYS DARI ENV / .ENV
 # ==========================================
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
@@ -18,7 +19,9 @@ if os.path.exists(".env"):
     with open(".env", "r") as f:
         for line in f:
             line = line.strip()
-            if line.startswith("GEMINI_API_KEY=") and not GEMINI_API_KEY:
+            if line.startswith("DEEPSEEK_API_KEY=") and not DEEPSEEK_API_KEY:
+                DEEPSEEK_API_KEY = line.split("=", 1)[1].strip('"\'')
+            elif line.startswith("GEMINI_API_KEY=") and not GEMINI_API_KEY:
                 GEMINI_API_KEY = line.split("=", 1)[1].strip('"\'')
             elif line.startswith("GROQ_API_KEY=") and not GROQ_API_KEY:
                 GROQ_API_KEY = line.split("=", 1)[1].strip('"\'')
@@ -95,6 +98,29 @@ PLAYER_LAST_QUERY_TIME = {}
 GLOBAL_COOLDOWN_SECONDS = 3  # Jeda minimal 3 detik antar request API global
 PLAYER_COOLDOWN_SECONDS = 6  # Jeda minimal 6 detik per player agar tidak kena 429 Too Many Requests
 
+def query_deepseek_ai(user_name, user_message):
+    """Mengirim pesan ke DeepSeek API (deepseek-chat)"""
+    url = "https://api.deepseek.com/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
+    }
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"Player '{user_name}' berkata: \"{user_message}\"."}
+        ],
+        "max_tokens": 50,
+        "temperature": 0.7
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=10) as response:
+        res_json = json.loads(response.read().decode("utf-8"))
+        reply = res_json["choices"][0]["message"]["content"].strip()
+        return reply.replace("\n", " ")
+
 def query_gemini_ai(user_name, user_message):
     """Mengirim pesan ke Gemini API (gemini-3.5-flash)"""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_API_KEY}"
@@ -139,7 +165,7 @@ def query_groq_ai(user_name, user_message):
         return reply.replace("\n", " ")
 
 def get_ai_response(user_name, user_message):
-    """Mendapatkan respon AI dengan sistem Cooldown + Automatic Fallback"""
+    """Mendapatkan respon AI dengan sistem Cooldown + Multi-Provider Fallback Chain"""
     global LAST_GLOBAL_QUERY_TIME, PLAYER_LAST_QUERY_TIME
     current_time = time.time()
     
@@ -159,22 +185,20 @@ def get_ai_response(user_name, user_message):
     LAST_GLOBAL_QUERY_TIME = time.time()
     PLAYER_LAST_QUERY_TIME[player_key] = time.time()
 
-    # 3. Eksekusi API (Gemini -> Groq -> Local Fallback)
+    # 3. Eksekusi Rotasi API (DeepSeek -> Gemini -> Groq -> Local Fallback)
+    providers = []
+    if DEEPSEEK_API_KEY:
+        providers.append(("DeepSeek AI", lambda: query_deepseek_ai(user_name, user_message)))
     if GEMINI_API_KEY:
+        providers.append(("Gemini AI", lambda: query_gemini_ai(user_name, user_message)))
+    if GROQ_API_KEY:
+        providers.append(("Groq AI", lambda: query_groq_ai(user_name, user_message)))
+
+    for name, func in providers:
         try:
-            return query_gemini_ai(user_name, user_message)
+            return func()
         except Exception as e:
-            print(f"\n[Gemini AI 429/Error]: {e}. Mencoba Groq AI...", file=sys.stderr)
-            if GROQ_API_KEY:
-                try:
-                    return query_groq_ai(user_name, user_message)
-                except Exception as ex:
-                    print(f"\n[Groq AI 429/Error]: {ex}", file=sys.stderr)
-    elif GROQ_API_KEY:
-        try:
-            return query_groq_ai(user_name, user_message)
-        except Exception as e:
-            print(f"\n[Groq AI 429/Error]: {e}", file=sys.stderr)
+            print(f"\n[{name} Error/429]: {e}. Mengalihkan ke provider berikutnya...", file=sys.stderr)
 
     return "panjang le, cari di google aja wkwk"
 
