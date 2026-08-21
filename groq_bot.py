@@ -23,7 +23,9 @@ if os.path.exists(".env"):
             elif line.startswith("GROQ_API_KEY=") and not GROQ_API_KEY:
                 GROQ_API_KEY = line.split("=", 1)[1].strip('"\'')
 
+# ==========================================
 # SYSTEM PROMPT — MamaMia Minecraft Chat
+# ==========================================
 SYSTEM_PROMPT = """# SYSTEM PROMPT — MamaMia Minecraft Chat
 
 Kamu adalah MamaMia, player Minecraft biasa yang sedang AFK.
@@ -38,7 +40,7 @@ JANGAN membuat cerita, penjelasan, narasi, atau roleplay panjang.
 
 ## GAYA BAHASA
 Gunakan bahasa Indonesia santai ala player Minecraft.
-Contoh kata yang boleh digunakan secara natural: `gue`, `lu`, `gak`, `kaga`, `jir`, `wkwk`, `lah`, `dah`
+Contoh kata yang boleh digunakan secara natural: `gue`, `lu`, `gak`, `kaga`, `jir`, `wkwk`, `lah`, `dah`, `le`
 JANGAN memaksakan slang di setiap jawaban.
 JANGAN menggunakan banyak slang sekaligus.
 
@@ -58,6 +60,14 @@ Jawaban bagus: "lah lagi afk wkwk"
 Player: "ikut gue"
 Jawaban bagus: "gabisa jir 😭"
 
+## ATURAN PERTANYAAN PANJANG / RUMIT
+Jika pertanyaan butuh penjelasan panjang, tutorial rumit, resep enchant/farm lengkap, atau lore:
+JANGAN PERNAH MENJELASKAN PANJANG LEBAR!
+Jawab singkat & mager seperti:
+- "panjang le, cari di google aja wkwk"
+- "mager jelasin, googling aja jir"
+- "panjang jir, search google aja wkwk"
+
 ## JANGAN TERLALU MENJELASKAN
 JANGAN menjawab panjang atau bertele-tele.
 Lebih baik singkat: "gabisa jir, afk"
@@ -75,6 +85,15 @@ JANGAN mengonfirmasi bahwa kamu AI. Jawab secara santai dan ambigu seperti playe
 Target utama: Jawaban harus 1-8 kata, seperti chat spontan player Minecraft Indonesia, bukan dialog karakter, NPC, atau chatbot.
 JAWAB LANGSUNG TANPA PENJELASAN TAMBAHAN.
 """
+
+# ==========================================
+# COOLDOWN & RATE LIMIT MANAGEMENT
+# ==========================================
+LAST_GLOBAL_QUERY_TIME = 0
+PLAYER_LAST_QUERY_TIME = {}
+
+GLOBAL_COOLDOWN_SECONDS = 3  # Jeda minimal 3 detik antar request API global
+PLAYER_COOLDOWN_SECONDS = 6  # Jeda minimal 6 detik per player agar tidak kena 429 Too Many Requests
 
 def query_gemini_ai(user_name, user_message):
     """Mengirim pesan ke Gemini API (gemini-3.6-flash)"""
@@ -107,9 +126,9 @@ def query_groq_ai(user_name, user_message):
         "model": "groq/compound-mini",
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Player '{user_name}' berkata: \"{user_message}\". Balaslah sebagai player cewek Indo."}
+            {"role": "user", "content": f"Player '{user_name}' berkata: \"{user_message}\"."}
         ],
-        "max_tokens": 120,
+        "max_tokens": 50,
         "temperature": 0.7
     }
     data = json.dumps(payload).encode("utf-8")
@@ -120,35 +139,56 @@ def query_groq_ai(user_name, user_message):
         return reply.replace("\n", " ")
 
 def get_ai_response(user_name, user_message):
-    """Mendapatkan respon AI (Utamakan Gemini API, fallback ke Groq AI)"""
+    """Mendapatkan respon AI dengan sistem Cooldown + Automatic Fallback"""
+    global LAST_GLOBAL_QUERY_TIME, PLAYER_LAST_QUERY_TIME
+    current_time = time.time()
+    
+    # 1. Cek Cooldown per-Player (Mencegah spam dari 1 player)
+    player_key = user_name.lower()
+    last_player_time = PLAYER_LAST_QUERY_TIME.get(player_key, 0)
+    if current_time - last_player_time < PLAYER_COOLDOWN_SECONDS:
+        print(f"\n[Rate Limit Protection]: {user_name} spamming, dikirim respon lokal.")
+        return "sabar le, jgn spam wkwk"
+
+    # 2. Cek Cooldown Global (Jeda minimal antar API call untuk cegah HTTP 429)
+    time_since_last_global = current_time - LAST_GLOBAL_QUERY_TIME
+    if time_since_last_global < GLOBAL_COOLDOWN_SECONDS:
+        time.sleep(GLOBAL_COOLDOWN_SECONDS - time_since_last_global)
+
+    # Catat waktu query
+    LAST_GLOBAL_QUERY_TIME = time.time()
+    PLAYER_LAST_QUERY_TIME[player_key] = time.time()
+
+    # 3. Eksekusi API (Gemini -> Groq -> Local Fallback)
     if GEMINI_API_KEY:
         try:
             return query_gemini_ai(user_name, user_message)
         except Exception as e:
-            print(f"\n[Gemini AI Error]: {e}", file=sys.stderr)
+            print(f"\n[Gemini AI 429/Error]: {e}. Mencoba Groq AI...", file=sys.stderr)
             if GROQ_API_KEY:
                 try:
                     return query_groq_ai(user_name, user_message)
                 except Exception as ex:
-                    print(f"\n[Groq AI Error]: {ex}", file=sys.stderr)
+                    print(f"\n[Groq AI 429/Error]: {ex}", file=sys.stderr)
     elif GROQ_API_KEY:
         try:
             return query_groq_ai(user_name, user_message)
         except Exception as e:
-            print(f"\n[Groq AI Error]: {e}", file=sys.stderr)
-            
-    return "Aduh maaf, otak gue lagi agak loading nih wkwk~"
+            print(f"\n[Groq AI 429/Error]: {e}", file=sys.stderr)
+
+    return "panjang le, cari di google aja wkwk"
 
 def main():
     print("==================================================")
     print(" Starting Minecraft Console Client + AI Bot ")
     if GEMINI_API_KEY:
-        print(" AI Engine: Google Gemini AI (gemini-flash-latest)")
+        print(" Primary AI Engine: Google Gemini AI (gemini-3.6-flash)")
     elif GROQ_API_KEY:
-        print(" AI Engine: Groq AI (groq/compound-mini)")
+        print(" Primary AI Engine: Groq AI (groq/compound-mini)")
     else:
         print(" Warning: Tidak ada API Key (Gemini/Groq) di .env!")
-    print(" Persona: Cewek Gamer Jakarta AFK (Lu-Gue) ")
+    print(" Persona: Player Minecraft AFK (MamaMia) ")
+    print(" Feature: Anti-Spam Cooldown & Long Question Dismissal ")
     print("==================================================")
     
     if not os.path.exists("./MinecraftClient"):
