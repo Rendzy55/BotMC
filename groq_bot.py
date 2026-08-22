@@ -4,9 +4,13 @@ import re
 import sys
 import json
 import time
+import queue
+import threading
 import subprocess
 import urllib.request
 import urllib.error
+from collections import deque
+from flask import Flask, render_template, jsonify, request, Response
 
 # ==========================================
 # LOAD API KEYS DARI ENV / .ENV
@@ -22,6 +26,36 @@ if os.path.exists(".env"):
                 GEMINI_API_KEY = line.split("=", 1)[1].strip('"\'')
             elif line.startswith("GROQ_API_KEY=") and not GROQ_API_KEY:
                 GROQ_API_KEY = line.split("=", 1)[1].strip('"\'')
+
+# ==========================================
+# GLOBAL STATE & LOG BROADCASTING
+# ==========================================
+AI_ENABLED = True
+CHAT_MODE = "mention_only"  # Options: "silent", "pm_only", "mention_only", "public"
+TOTAL_AI_RESPONSES = 0
+START_TIME = time.time()
+MCC_PROCESS = None
+MCC_LOCK = threading.Lock()
+
+LOG_BUFFER = deque(maxlen=1000)
+LOG_LISTENERS = set()
+LOG_LOCK = threading.Lock()
+
+def dispatch_log(line_text):
+    """Broadcasting log line ke console terminal & semua web SSE listener."""
+    clean_line = line_text.rstrip('\r\n')
+    sys.stdout.write(line_text if line_text.endswith('\n') else line_text + '\n')
+    sys.stdout.flush()
+
+    with LOG_LOCK:
+        LOG_BUFFER.append(clean_line)
+        dead_listeners = set()
+        for q in LOG_LISTENERS:
+            try:
+                q.put_nowait(clean_line)
+            except queue.Full:
+                dead_listeners.add(q)
+        LOG_LISTENERS.difference_update(dead_listeners)
 
 # ==========================================
 # SYSTEM PROMPT — Mia Minecraft Chat
@@ -101,7 +135,7 @@ GLOBAL_COOLDOWN_SECONDS = 3  # Jeda minimal 3 detik antar request API global
 PLAYER_COOLDOWN_SECONDS = 6  # Jeda minimal 6 detik per player agar tidak kena 429 Too Many Requests
 
 def query_gemini_ai(user_name, user_message):
-    """Mengirim pesan ke Gemini API dengan rotasi model internal (gemini-3.5-flash-lite -> gemini-3.1-flash-lite -> gemini-3.5-flash)"""
+    """Mengirim pesan ke Gemini API dengan rotasi model internal"""
     gemini_models = [
         "models/gemini-3.5-flash-lite",
         "models/gemini-3.1-flash-lite",
@@ -130,12 +164,12 @@ def query_gemini_ai(user_name, user_message):
                 return reply.replace("\n", " ")
         except Exception as e:
             last_err = e
-            print(f"\n[Gemini Model {m} Error/429]: {e}. Mencoba model Gemini berikutnya...", file=sys.stderr)
+            dispatch_log(f"[Gemini Model {m} Error]: {e}. Mencoba model Gemini berikutnya...")
             
     raise last_err
 
 def query_groq_ai(user_name, user_message):
-    """Mengirim pesan ke Groq API dengan rotasi model internal (groq/compound-mini -> groq/compound)"""
+    """Mengirim pesan ke Groq API dengan rotasi model internal"""
     groq_models = ["groq/compound-mini", "groq/compound"]
     
     url = "https://api.groq.com/openai/v1/chat/completions"
@@ -165,12 +199,12 @@ def query_groq_ai(user_name, user_message):
                 return reply.replace("\n", " ")
         except Exception as e:
             last_err = e
-            print(f"\n[Groq Model {model_name} Error/429]: {e}. Mencoba model Groq berikutnya...", file=sys.stderr)
+            dispatch_log(f"[Groq Model {model_name} Error]: {e}. Mencoba model Groq berikutnya...")
             
     raise last_err
 
 def check_smart_local_reply(user_message):
-    """Pengecekan lokal cepat untuk pertanyaan umum agar menghemat kuota API 70%+"""
+    """Pengecekan lokal cepat untuk pertanyaan umum"""
     msg = user_message.lower().strip()
     
     if any(k in msg for k in ["ngapain", "lagi apa", "lagi ngapain"]):
@@ -189,34 +223,30 @@ def check_smart_local_reply(user_message):
     return None
 
 def get_ai_response(user_name, user_message):
-    """Mendapatkan respon AI dengan sistem Cooldown + Smart Local Check + Multi-Provider Fallback Chain"""
-    global LAST_GLOBAL_QUERY_TIME, PLAYER_LAST_QUERY_TIME
+    """Mendapatkan respon AI dengan sistem Cooldown + Smart Local Check + Multi-Provider Fallback"""
+    global LAST_GLOBAL_QUERY_TIME, PLAYER_LAST_QUERY_TIME, TOTAL_AI_RESPONSES
     current_time = time.time()
     
-    # 1. Cek Cooldown per-Player (Mencegah spam dari 1 player)
     player_key = user_name.lower()
     last_player_time = PLAYER_LAST_QUERY_TIME.get(player_key, 0)
     if current_time - last_player_time < PLAYER_COOLDOWN_SECONDS:
-        print(f"\n[Rate Limit Protection]: {user_name} spamming, dikirim respon lokal.")
+        dispatch_log(f"[Rate Limit Protection]: {user_name} spamming, dikirim respon lokal.")
         return ". . . :v"
 
-    # 2. Cek Fast Local Match (Hemat API call hingga 70%+)
     local_reply = check_smart_local_reply(user_message)
     if local_reply:
-        print(f"\n[Fast Local Reply Triggered for {user_name}]: {local_reply}")
+        dispatch_log(f"[Fast Local Reply Triggered for {user_name}]: {local_reply}")
         PLAYER_LAST_QUERY_TIME[player_key] = current_time
+        TOTAL_AI_RESPONSES += 1
         return local_reply
 
-    # 3. Cek Cooldown Global (Jeda minimal antar API call untuk cegah HTTP 429)
     time_since_last_global = current_time - LAST_GLOBAL_QUERY_TIME
     if time_since_last_global < GLOBAL_COOLDOWN_SECONDS:
         time.sleep(GLOBAL_COOLDOWN_SECONDS - time_since_last_global)
 
-    # Catat waktu query
     LAST_GLOBAL_QUERY_TIME = time.time()
     PLAYER_LAST_QUERY_TIME[player_key] = time.time()
 
-    # 4. Eksekusi Rotasi API (Gemini -> Groq Pool [compound-mini, compound] -> Local Fallback)
     providers = []
     if GEMINI_API_KEY:
         providers.append(("Gemini AI", lambda: query_gemini_ai(user_name, user_message)))
@@ -225,30 +255,134 @@ def get_ai_response(user_name, user_message):
 
     for name, func in providers:
         try:
-            return func()
+            res = func()
+            TOTAL_AI_RESPONSES += 1
+            return res
         except Exception as e:
-            print(f"\n[{name} Error/429]: {e}. Mengalihkan ke provider berikutnya...", file=sys.stderr)
+            dispatch_log(f"[{name} Error]: {e}. Mengalihkan ke provider berikutnya...")
 
+    TOTAL_AI_RESPONSES += 1
     return ". . . :v"
 
+# ==========================================
+# FLASK WEB DASHBOARD SERVER
+# ==========================================
+app = Flask(__name__, template_folder="templates")
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+@app.route("/api/status")
+def api_status():
+    primary_engine = "Gemini AI" if GEMINI_API_KEY else ("Groq AI" if GROQ_API_KEY else "None")
+    mcc_running = MCC_PROCESS is not None and MCC_PROCESS.poll() is None
+    uptime = int(time.time() - START_TIME)
+    
+    return jsonify({
+        "ai_enabled": AI_ENABLED,
+        "chat_mode": CHAT_MODE,
+        "primary_engine": primary_engine,
+        "mcc_running": mcc_running,
+        "bot_username": "MamaMia",
+        "total_messages": TOTAL_AI_RESPONSES,
+        "uptime": uptime
+    })
+
+@app.route("/api/ai/toggle", methods=["POST"])
+def api_ai_toggle():
+    global AI_ENABLED
+    AI_ENABLED = not AI_ENABLED
+    state_str = "ENABLED (AKTIF)" if AI_ENABLED else "DISABLED (NONAKTIF)"
+    dispatch_log(f"[Web Dashboard]: AI Master Switch set to {state_str}")
+    return jsonify({"ai_enabled": AI_ENABLED})
+
+@app.route("/api/chat/mode", methods=["POST"])
+def api_chat_mode():
+    global CHAT_MODE
+    data = request.json or {}
+    mode = data.get("mode", "").lower()
+    if mode in ["silent", "pm_only", "mention_only", "public"]:
+        CHAT_MODE = mode
+        dispatch_log(f"[Web Dashboard]: Chat Mode set to '{CHAT_MODE}'")
+    return jsonify({"chat_mode": CHAT_MODE})
+
+@app.route("/api/command", methods=["POST"])
+def api_command():
+    data = request.json or {}
+    cmd = data.get("command", "").strip()
+    if not cmd:
+        return jsonify({"error": "Empty command"}), 400
+
+    with MCC_LOCK:
+        if MCC_PROCESS and MCC_PROCESS.poll() is None:
+            dispatch_log(f"[Web Command Executed]: {cmd}")
+            cmd_to_send = f"{cmd}\n"
+            try:
+                MCC_PROCESS.stdin.write(cmd_to_send)
+                MCC_PROCESS.stdin.flush()
+                return jsonify({"status": "success", "command": cmd})
+            except Exception as e:
+                return jsonify({"error": str(e)}), 500
+        else:
+            return jsonify({"error": "MCC Process is not running"}), 503
+
+@app.route("/api/logs/history")
+def api_logs_history():
+    with LOG_LOCK:
+        return jsonify(list(LOG_BUFFER))
+
+@app.route("/api/logs/stream")
+def api_logs_stream():
+    def generate():
+        q = queue.Queue(maxsize=100)
+        with LOG_LOCK:
+            LOG_LISTENERS.add(q)
+        try:
+            while True:
+                line = q.get()
+                yield f"data: {line}\n\n"
+        except GeneratorExit:
+            with LOG_LOCK:
+                LOG_LISTENERS.discard(q)
+
+    return Response(generate(), mimetype="text/event-stream")
+
+def start_flask_app():
+    # Menjalankan Flask di host 0.0.0.0 port 5000 tanpa output verbose werkzeug
+    import logging
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)
+    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+
+# ==========================================
+# MAIN MCC CONTROLLER LOOP
+# ==========================================
 def main():
-    print("==================================================")
-    print(" Starting Minecraft Console Client + AI Bot ")
+    global MCC_PROCESS
+
+    dispatch_log("==================================================")
+    dispatch_log(" Starting Minecraft Console Client + AI Web Dashboard ")
     if GEMINI_API_KEY:
-        print(" Primary AI Engine: Google Gemini AI (gemini-3.5-flash-lite)")
+        dispatch_log(" Primary AI Engine: Google Gemini AI (gemini-3.5-flash-lite)")
     elif GROQ_API_KEY:
-        print(" Primary AI Engine: Groq AI (groq/compound-mini)")
+        dispatch_log(" Primary AI Engine: Groq AI (groq/compound-mini)")
     else:
-        print(" Warning: Tidak ada API Key (Gemini/Groq) di .env!")
-    print(" Persona: Player Minecraft AFK (Mia) ")
-    print(" Feature: Anti-Spam Cooldown & Long Question Dismissal ")
-    print("==================================================")
+        dispatch_log(" Warning: Tidak ada API Key (Gemini/Groq) di .env!")
+    dispatch_log(" Persona: Player Minecraft AFK (Mia) ")
+    dispatch_log(" Web Dashboard: http://localhost:5000 / http://0.0.0.0:5000")
+    dispatch_log("==================================================")
     
     if not os.path.exists("./MinecraftClient"):
-        print("[Error] Executable ./MinecraftClient tidak ditemukan. Jalankan ./setup.sh dulu!")
+        dispatch_log("[Error] Executable ./MinecraftClient tidak ditemukan. Jalankan ./setup.sh dulu!")
         sys.exit(1)
 
-    process = subprocess.Popen(
+    # Start Web Dashboard Server di daemon thread
+    web_thread = threading.Thread(target=start_flask_app, daemon=True)
+    web_thread.start()
+    dispatch_log("[Web Dashboard]: Web Server running on port 5000...")
+
+    MCC_PROCESS = subprocess.Popen(
         ["./MinecraftClient"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -261,26 +395,29 @@ def main():
     regex_public = re.compile(r'(?:<([a-zA-Z0-9_]+)>|([a-zA-Z0-9_]+):)\s+(.+)', re.IGNORECASE)
 
     try:
-        for line in iter(process.stdout.readline, ''):
-            sys.stdout.write(line)
-            sys.stdout.flush()
+        for line in iter(MCC_PROCESS.stdout.readline, ''):
+            dispatch_log(line)
 
             clean_line = re.sub(r'\x1b\[[0-9;]*[mGKB]', '', line).strip()
 
-            # 1. Private Message
+            # 1. Private Message Handling
             pm_match = regex_pm.search(clean_line)
             if pm_match:
                 sender = pm_match.group(1)
                 message = pm_match.group(2).strip()
-                print(f"\n[AI PM Detected from {sender}]: {message}")
-                
-                ai_reply = get_ai_response(sender, message)
-                cmd_send = f"/tell {sender} {ai_reply}\n"
-                process.stdin.write(cmd_send)
-                process.stdin.flush()
+
+                if AI_ENABLED and CHAT_MODE in ["pm_only", "mention_only", "public"]:
+                    dispatch_log(f"[AI PM Detected from {sender}]: {message}")
+                    ai_reply = get_ai_response(sender, message)
+                    dispatch_log(f"[AI PM Reply to {sender}]: {ai_reply}")
+                    
+                    with MCC_LOCK:
+                        cmd_send = f"/tell {sender} {ai_reply}\n"
+                        MCC_PROCESS.stdin.write(cmd_send)
+                        MCC_PROCESS.stdin.flush()
                 continue
 
-            # 2. Public Chat
+            # 2. Public Chat Handling
             pub_match = regex_public.search(clean_line)
             if pub_match:
                 sender = pub_match.group(1) or pub_match.group(2)
@@ -289,19 +426,44 @@ def main():
                 if sender.lower() == "mia":
                     continue
 
+                if not AI_ENABLED or CHAT_MODE == "silent":
+                    continue
+
                 lower_msg = message.lower()
-                if lower_msg.startswith("!ask ") or "mia" in lower_msg or "bot" in lower_msg:
-                    clean_msg = re.sub(r'^!ask\s+', '', message, flags=re.IGNORECASE)
-                    print(f"\n[AI Public Chat Detected from {sender}]: {clean_msg}")
-                    
+                should_respond = False
+                clean_msg = message
+
+                if CHAT_MODE == "mention_only":
+                    # Hanya respon jika dipanggil spesifik dengan !ask, @mia, atau mia di awal kata
+                    if lower_msg.startswith("!ask "):
+                        should_respond = True
+                        clean_msg = re.sub(r'^!ask\s+', '', message, flags=re.IGNORECASE)
+                    elif lower_msg.startswith("@mia ") or lower_msg.startswith("mia "):
+                        should_respond = True
+                        clean_msg = re.sub(r'^(@mia|mia)\s+', '', message, flags=re.IGNORECASE)
+                    elif lower_msg == "mia":
+                        should_respond = True
+                        clean_msg = "halo"
+                elif CHAT_MODE == "public":
+                    # Respon jika ada sebutan mia atau !ask
+                    if lower_msg.startswith("!ask ") or "mia" in lower_msg:
+                        should_respond = True
+                        clean_msg = re.sub(r'^!ask\s+', '', message, flags=re.IGNORECASE)
+
+                if should_respond:
+                    dispatch_log(f"[AI Public Chat Detected from {sender}]: {clean_msg}")
                     ai_reply = get_ai_response(sender, clean_msg)
-                    cmd_send = f"{ai_reply}\n"
-                    process.stdin.write(cmd_send)
-                    process.stdin.flush()
+                    dispatch_log(f"[AI Public Reply]: {ai_reply}")
+                    
+                    with MCC_LOCK:
+                        cmd_send = f"{ai_reply}\n"
+                        MCC_PROCESS.stdin.write(cmd_send)
+                        MCC_PROCESS.stdin.flush()
 
     except KeyboardInterrupt:
-        print("\nStopping AI Bot...")
-        process.terminate()
+        dispatch_log("\nStopping AI Bot & Web Dashboard...")
+        if MCC_PROCESS:
+            MCC_PROCESS.terminate()
 
 if __name__ == "__main__":
     main()

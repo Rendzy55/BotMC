@@ -16,3 +16,6 @@ Rendered_Maps/
 # Environment & Dependencies
 .env
 node_modules/
+__pycache__/
+*.pyc
+

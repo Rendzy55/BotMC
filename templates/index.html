@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mia Minecraft Bot — Web Dashboard & Controller</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --bg-base: #0b0f19;
+            --bg-card: rgba(22, 30, 49, 0.75);
+            --bg-card-border: rgba(255, 255, 255, 0.08);
+            --bg-terminal: #070a12;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-cyan: #06b6d4;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-yellow: #f59e0b;
+            --accent-purple: #8b5cf6;
+            --font-main: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'Fira Code', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            background-image: 
+                radial-gradient(at 10% 10%, rgba(6, 182, 212, 0.08) 0px, transparent 50%),
+                radial-gradient(at 90% 90%, rgba(139, 92, 246, 0.08) 0px, transparent 50%);
+            color: var(--text-primary);
+            font-family: var(--font-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header Navbar */
+        header {
+            background: rgba(11, 15, 25, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--bg-card-border);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            color: #fff;
+            box-shadow: 0 4px 14px rgba(6, 182, 212, 0.3);
+        }
+
+        .brand-title h1 {
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+        }
+
+        .brand-title p {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .header-stats {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--bg-card-border);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .dot.online {
+            background: var(--accent-green);
+            box-shadow: 0 0 10px var(--accent-green);
+        }
+
+        .dot.offline {
+            background: var(--accent-red);
+            box-shadow: 0 0 10px var(--accent-red);
+        }
+
+        /* Container Layout */
+        .container {
+            max-width: 1400px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 24px;
+            flex: 1;
+            display: grid;
+            grid-template-columns: 340px 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 992px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--bg-card-border);
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            margin-bottom: 20px;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--bg-card-border);
+        }
+
+        .card-header h2 {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card-header h2 i {
+            color: var(--accent-cyan);
+        }
+
+        /* Controls Section */
+        .control-group {
+            margin-bottom: 20px;
+        }
+
+        .control-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            font-weight: 600;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        /* Master Toggle Switch */
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--bg-card-border);
+            padding: 14px 16px;
+            border-radius: 12px;
+        }
+
+        .toggle-info strong {
+            display: block;
+            font-size: 14px;
+            margin-bottom: 2px;
+        }
+
+        .toggle-info span {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 52px;
+            height: 28px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(255, 255, 255, 0.15);
+            transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 34px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: var(--accent-green);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(24px);
+        }
+
+        /* Chat Mode Selector */
+        .mode-options {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .mode-btn {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--bg-card-border);
+            color: var(--text-secondary);
+            padding: 12px 14px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 13px;
+            font-weight: 500;
+            text-align: left;
+        }
+
+        .mode-btn:hover {
+            background: rgba(255, 255, 255, 0.07);
+            color: var(--text-primary);
+        }
+
+        .mode-btn.active {
+            background: rgba(6, 182, 212, 0.15);
+            border-color: var(--accent-cyan);
+            color: #fff;
+            box-shadow: 0 0 12px rgba(6, 182, 212, 0.2);
+        }
+
+        .mode-btn i {
+            font-size: 16px;
+            width: 20px;
+            text-align: center;
+        }
+
+        .mode-btn.active i {
+            color: var(--accent-cyan);
+        }
+
+        /* System Info Stats Grid */
+        .stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .stat-item {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--bg-card-border);
+            padding: 10px 12px;
+            border-radius: 10px;
+        }
+
+        .stat-item label {
+            font-size: 11px;
+            color: var(--text-muted);
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .stat-item val {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+        }
+
+        /* Main Console Panel */
+        .console-card {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 120px);
+            min-height: 550px;
+            margin-bottom: 0;
+        }
+
+        .console-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .search-box {
+            position: relative;
+            flex: 1;
+        }
+
+        .search-box input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--bg-card-border);
+            border-radius: 8px;
+            padding: 8px 12px 8px 36px;
+            color: #fff;
+            font-size: 13px;
+            outline: none;
+        }
+
+        .search-box input:focus {
+            border-color: var(--accent-cyan);
+        }
+
+        .search-box i {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+
+        .toolbar-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-icon {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--bg-card-border);
+            color: var(--text-secondary);
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-icon:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: #fff;
+        }
+
+        .btn-icon.active {
+            background: rgba(16, 185, 129, 0.2);
+            border-color: var(--accent-green);
+            color: var(--accent-green);
+        }
+
+        /* Terminal Window */
+        .terminal {
+            flex: 1;
+            background: var(--bg-terminal);
+            border: 1px solid var(--bg-card-border);
+            border-radius: 12px;
+            padding: 16px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            line-height: 1.6;
+            overflow-y: auto;
+            color: #d1d5db;
+            box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
+            scroll-behavior: smooth;
+        }
+
+        .log-line {
+            white-space: pre-wrap;
+            word-break: break-all;
+            padding: 1px 0;
+        }
+
+        .log-line.ai-pm {
+            color: #38bdf8;
+            font-weight: 500;
+        }
+
+        .log-line.ai-public {
+            color: #c084fc;
+            font-weight: 500;
+        }
+
+        .log-line.error {
+            color: #f87171;
+        }
+
+        .log-line.warning {
+            color: #fbbf24;
+        }
+
+        .log-line.cmd {
+            color: #4ade80;
+            font-weight: 600;
+        }
+
+        /* Command Bar */
+        .command-bar {
+            margin-top: 14px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .command-input {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--bg-card-border);
+            border-radius: 10px;
+            padding: 12px 16px;
+            color: #fff;
+            font-family: var(--font-mono);
+            font-size: 14px;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        .command-input:focus {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 14px rgba(6, 182, 212, 0.2);
+        }
+
+        .btn-send {
+            background: linear-gradient(135deg, var(--accent-cyan), #0284c7);
+            border: none;
+            color: #fff;
+            padding: 0 24px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: transform 0.1s ease, box-shadow 0.2s ease;
+            box-shadow: 0 4px 14px rgba(6, 182, 212, 0.3);
+        }
+
+        .btn-send:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 18px rgba(6, 182, 212, 0.4);
+        }
+
+        .btn-send:active {
+            transform: translateY(0);
+        }
+
+        /* Quick Commands Chips */
+        .quick-chips {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+        }
+
+        .chip {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--bg-card-border);
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+        }
+
+        .chip:hover {
+            background: rgba(6, 182, 212, 0.15);
+            border-color: var(--accent-cyan);
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Navbar -->
+    <header>
+        <div class="brand">
+            <div class="brand-icon">
+                <i class="fa-solid fa-robot"></i>
+            </div>
+            <div class="brand-title">
+                <h1>Mia Bot Dashboard</h1>
+                <p>Minecraft Console Client + AI Controller</p>
+            </div>
+        </div>
+
+        <div class="header-stats">
+            <div class="status-pill">
+                <span class="dot online" id="status-dot"></span>
+                <span id="status-text">MCC Connected</span>
+            </div>
+            <div class="status-pill">
+                <i class="fa-solid fa-brain" style="color: var(--accent-purple);"></i>
+                <span id="ai-engine-text">Gemini AI</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+
+        <!-- Sidebar / Controls -->
+        <div class="sidebar">
+
+            <!-- Master Control Card -->
+            <div class="card">
+                <div class="card-header">
+                    <h2><i class="fa-solid fa-sliders"></i> Master Controls</h2>
+                </div>
+
+                <!-- AI Switch -->
+                <div class="control-group">
+                    <span class="control-label">AI Respon Engine</span>
+                    <div class="toggle-container">
+                        <div class="toggle-info">
+                            <strong id="ai-toggle-label">AI Nonaktif</strong>
+                            <span id="ai-toggle-sub">Matikan/Hidupkan AI chat</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="ai-toggle" onchange="toggleAI()">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Chat Behavior Mode -->
+                <div class="control-group">
+                    <span class="control-label">Mode Chat Bot</span>
+                    <div class="mode-options">
+                        <button class="mode-btn" id="mode-silent" onclick="setChatMode('silent')">
+                            <i class="fa-solid fa-volume-xmark"></i>
+                            <div>
+                                <strong>Diam (Silent Mode)</strong>
+                                <div style="font-size:11px; opacity:0.7;">Bot tidak membalas chat sama sekali</div>
+                            </div>
+                        </button>
+
+                        <button class="mode-btn" id="mode-pm_only" onclick="setChatMode('pm_only')">
+                            <i class="fa-solid fa-envelope"></i>
+                            <div>
+                                <strong>Hanya Private Message (PM)</strong>
+                                <div style="font-size:11px; opacity:0.7;">Hanya membalas chat bisikan /tell</div>
+                            </div>
+                        </button>
+
+                        <button class="mode-btn active" id="mode-mention_only" onclick="setChatMode('mention_only')">
+                            <i class="fa-solid fa-at"></i>
+                            <div>
+                                <strong>Hanya Saat Dipanggil (!ask / @Mia)</strong>
+                                <div style="font-size:11px; opacity:0.7;">Tidak spam chat jika tidak dipanggil</div>
+                            </div>
+                        </button>
+
+                        <button class="mode-btn" id="mode-public" onclick="setChatMode('public')">
+                            <i class="fa-solid fa-comments"></i>
+                            <div>
+                                <strong>Public Chat Aktif</strong>
+                                <div style="font-size:11px; opacity:0.7;">Responsif ke sebutan nama di server</div>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Card -->
+            <div class="card">
+                <div class="card-header">
+                    <h2><i class="fa-solid fa-chart-simple"></i> System Status</h2>
+                </div>
+                <div class="stat-grid">
+                    <div class="stat-item">
+                        <label>Bot Account</label>
+                        <val id="val-account">MamaMia</val>
+                    </div>
+                    <div class="stat-item">
+                        <label>Uptime</label>
+                        <val id="val-uptime">00:00:00</val>
+                    </div>
+                    <div class="stat-item">
+                        <label>Total AI Calls</label>
+                        <val id="val-total-msgs">0</val>
+                    </div>
+                    <div class="stat-item">
+                        <label>Web Port</label>
+                        <val>:5000</val>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Main Console Window -->
+        <div class="card console-card">
+            <div class="card-header" style="margin-bottom: 8px;">
+                <h2><i class="fa-solid fa-terminal"></i> Minecraft Console Client (MCC) Live Stream</h2>
+            </div>
+
+            <!-- Console Toolbar -->
+            <div class="console-toolbar">
+                <div class="search-box">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="log-search" placeholder="Cari pesan di console log..." oninput="filterLogs()">
+                </div>
+                <div class="toolbar-actions">
+                    <button class="btn-icon active" id="btn-autoscroll" onclick="toggleAutoScroll()">
+                        <i class="fa-solid fa-arrow-down-long"></i> Auto-Scroll
+                    </button>
+                    <button class="btn-icon" onclick="clearConsole()">
+                        <i class="fa-solid fa-trash-can"></i> Clear
+                    </button>
+                </div>
+            </div>
+
+            <!-- Terminal Area -->
+            <div class="terminal" id="terminal">
+                <div class="log-line" style="color: var(--accent-cyan); font-weight:600;">[System Web Dashboard]: Connecting to MCC Console Stream...</div>
+            </div>
+
+            <!-- Command Input Bar -->
+            <div class="command-bar">
+                <input type="text" class="command-input" id="cmd-input" placeholder="Ketik perintah Minecraft / MCC disini (contoh: /say Halo, /move, /tell rendy1125 tes)..." onkeydown="handleCmdKeyDown(event)">
+                <button class="btn-send" onclick="sendCommand()">
+                    <i class="fa-solid fa-paper-plane"></i> Kirim
+                </button>
+            </div>
+
+            <!-- Quick Command Chips -->
+            <div class="quick-chips">
+                <span class="chip" onclick="quickCmd('/say Halo dari Web Dashboard!')">/say Halo</span>
+                <span class="chip" onclick="quickCmd('/help')">/help</span>
+                <span class="chip" onclick="quickCmd('/tell rendy1125 halo owner')">/tell rendy1125</span>
+                <span class="chip" onclick="quickCmd('/move 0 64 0')">/move</span>
+                <span class="chip" onclick="quickCmd('/inventory')">/inventory</span>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        let autoScrollEnabled = true;
+        let sseSource = null;
+        let uptimeSeconds = 0;
+
+        // On Page Load
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchInitialStatus();
+            fetchHistoryLogs();
+            initSSE();
+            setInterval(fetchInitialStatus, 5000);
+        });
+
+        // Fetch Current Bot Status
+        async function fetchInitialStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+
+                // Update AI Toggle
+                const toggle = document.getElementById('ai-toggle');
+                toggle.checked = data.ai_enabled;
+                document.getElementById('ai-toggle-label').innerText = data.ai_enabled ? "AI AKTIF" : "AI NONAKTIF";
+                document.getElementById('ai-toggle-label').style.color = data.ai_enabled ? "var(--accent-green)" : "var(--accent-red)";
+
+                // Update Chat Mode buttons
+                updateModeButtonsUI(data.chat_mode);
+
+                // Update stats
+                document.getElementById('val-account').innerText = data.bot_username || "MamaMia";
+                document.getElementById('ai-engine-text').innerText = data.primary_engine || "AI Engine";
+                document.getElementById('val-total-msgs').innerText = data.total_messages || 0;
+                
+                if (data.uptime) {
+                    formatUptime(data.uptime);
+                }
+            } catch (err) {
+                console.error("Error fetching status:", err);
+            }
+        }
+
+        function updateModeButtonsUI(activeMode) {
+            const modes = ['silent', 'pm_only', 'mention_only', 'public'];
+            modes.forEach(mode => {
+                const btn = document.getElementById(`mode-${mode}`);
+                if (btn) {
+                    if (mode === activeMode) {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
+                }
+            });
+        }
+
+        // Toggle AI State
+        async function toggleAI() {
+            const toggle = document.getElementById('ai-toggle');
+            try {
+                const res = await fetch('/api/ai/toggle', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+                toggle.checked = data.ai_enabled;
+                document.getElementById('ai-toggle-label').innerText = data.ai_enabled ? "AI AKTIF" : "AI NONAKTIF";
+                document.getElementById('ai-toggle-label').style.color = data.ai_enabled ? "var(--accent-green)" : "var(--accent-red)";
+            } catch (err) {
+                console.error("Toggle AI failed:", err);
+            }
+        }
+
+        // Set Chat Mode
+        async function setChatMode(mode) {
+            try {
+                const res = await fetch('/api/chat/mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: mode })
+                });
+                const data = await res.json();
+                updateModeButtonsUI(data.chat_mode);
+            } catch (err) {
+                console.error("Set chat mode failed:", err);
+            }
+        }
+
+        // Fetch Log History
+        async function fetchHistoryLogs() {
+            try {
+                const res = await fetch('/api/logs/history');
+                const logs = await res.json();
+                const terminal = document.getElementById('terminal');
+                terminal.innerHTML = '';
+                logs.forEach(line => appendLogLine(line));
+            } catch (err) {
+                console.error("Fetch history logs failed:", err);
+            }
+        }
+
+        // Init Real-time SSE Stream
+        function initSSE() {
+            sseSource = new EventSource('/api/logs/stream');
+
+            sseSource.onmessage = function(event) {
+                appendLogLine(event.data);
+            };
+
+            sseSource.onerror = function(err) {
+                console.warn("SSE stream disconnected. Reconnecting in 3s...");
+                sseSource.close();
+                setTimeout(initSSE, 3000);
+            };
+        }
+
+        // Append log line with color formatting
+        function appendLogLine(text) {
+            const terminal = document.getElementById('terminal');
+            const div = document.createElement('div');
+            div.className = 'log-line';
+
+            // Custom highlight coloring
+            if (text.includes('[AI PM Detected') || text.includes('[AI PM Reply')) {
+                div.classList.add('ai-pm');
+            } else if (text.includes('[AI Public Chat') || text.includes('[AI Public Reply')) {
+                div.classList.add('ai-public');
+            } else if (text.toLowerCase().includes('error') || text.toLowerCase().includes('exception')) {
+                div.classList.add('error');
+            } else if (text.toLowerCase().includes('warning') || text.toLowerCase().includes('warn')) {
+                div.classList.add('warning');
+            } else if (text.includes('[Web Command Executed]')) {
+                div.classList.add('cmd');
+            }
+
+            div.innerText = text;
+
+            // Search filter check
+            const filterTerm = document.getElementById('log-search').value.toLowerCase();
+            if (filterTerm && !text.toLowerCase().includes(filterTerm)) {
+                div.style.display = 'none';
+            }
+
+            terminal.appendChild(div);
+
+            // Limit DOM elements to prevent memory lag
+            if (terminal.childNodes.length > 1200) {
+                terminal.removeChild(terminal.firstChild);
+            }
+
+            if (autoScrollEnabled) {
+                terminal.scrollTop = terminal.scrollHeight;
+            }
+        }
+
+        // Send Command to MCC
+        async function sendCommand() {
+            const input = document.getElementById('cmd-input');
+            const cmd = input.value.trim();
+            if (!cmd) return;
+
+            input.value = '';
+            try {
+                await fetch('/api/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command: cmd })
+                });
+            } catch (err) {
+                console.error("Send command error:", err);
+            }
+        }
+
+        function handleCmdKeyDown(e) {
+            if (e.key === 'Enter') {
+                sendCommand();
+            }
+        }
+
+        function quickCmd(cmd) {
+            document.getElementById('cmd-input').value = cmd;
+            sendCommand();
+        }
+
+        function toggleAutoScroll() {
+            autoScrollEnabled = !autoScrollEnabled;
+            const btn = document.getElementById('btn-autoscroll');
+            if (autoScrollEnabled) {
+                btn.classList.add('active');
+                document.getElementById('terminal').scrollTop = document.getElementById('terminal').scrollHeight;
+            } else {
+                btn.classList.remove('active');
+            }
+        }
+
+        function clearConsole() {
+            document.getElementById('terminal').innerHTML = '';
+        }
+
+        function filterLogs() {
+            const term = document.getElementById('log-search').value.toLowerCase();
+            const lines = document.querySelectorAll('#terminal .log-line');
+            lines.forEach(line => {
+                if (!term || line.innerText.toLowerCase().includes(term)) {
+                    line.style.display = 'block';
+                } else {
+                    line.style.display = 'none';
+                }
+            });
+        }
+
+        function formatUptime(seconds) {
+            const hrs = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            document.getElementById('val-uptime').innerText = 
+                `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }
+    </script>
+</body>
+</html>
